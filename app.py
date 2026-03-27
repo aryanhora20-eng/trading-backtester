@@ -17,7 +17,7 @@ st.set_page_config(page_title="Trading Dashboard", layout="wide")
 st.title("📊 Quant Trading Dashboard")
 
 # -----------------------
-# Caching (Speed Boost)
+# Caching
 # -----------------------
 
 @st.cache_data
@@ -32,17 +32,24 @@ def find_best_ma(ticker):
     best_sharpe = -999
     best_params = (50, 200)
 
+    data = cached_get_data(ticker)
+    if data is None:
+        return best_params
+
     for short in [20, 30, 50, 70]:
         for long in [100, 150, 200, 250]:
 
             if short >= long:
                 continue
 
-            data = cached_get_data(ticker)
-            data = moving_average_strategy(data, short, long)
-            data = backtest(data)
+            temp = data.copy()
+            temp = moving_average_strategy(temp, short, long)
+            temp = backtest(temp)
 
-            metrics = calculate_metrics(data)
+            if temp is None or temp.empty:
+                continue
+
+            metrics = calculate_metrics(temp)
 
             if metrics["Sharpe Ratio"] > best_sharpe:
                 best_sharpe = metrics["Sharpe Ratio"]
@@ -127,8 +134,16 @@ if run_button:
 
         for ticker in tickers:
             data = cached_get_data(ticker)
+
+            # 🔥 KEY FIX
+            if data is None or data.empty:
+                continue
+
             data = moving_average_strategy(data, short_window, long_window)
             data = backtest(data)
+
+            if data is None or data.empty:
+                continue
 
             metrics = calculate_metrics(data)
 
@@ -144,10 +159,15 @@ if run_button:
                 best_stock = ticker
                 best_data = data.copy()
 
+    # 🔥 SAFETY CHECK
+    if best_data is None or len(results) == 0:
+        st.error("No valid data found. Try fewer stocks or different settings.")
+        st.stop()
+
     df = pd.DataFrame(results)
 
     # -----------------------
-    # Bloomberg-style KPI
+    # KPI
     # -----------------------
 
     st.markdown("### 📊 Market Overview")
@@ -156,7 +176,7 @@ if run_button:
 
     col1.metric("🏆 Best Stock", best_stock)
     col2.metric("📈 Sharpe", f"{best_sharpe:.2f}")
-    col3.metric("📊 Stocks", len(tickers))
+    col3.metric("📊 Stocks", len(results))
 
     st.markdown("---")
 
@@ -168,17 +188,16 @@ if run_button:
 
     top3 = df.sort_values(by="Sharpe", ascending=False).head(3)
 
-    for i, row in top3.iterrows():
+    for _, row in top3.iterrows():
         st.write(
             f"{row['Stock']} | Sharpe: {row['Sharpe']:.2f} | CAGR: {row['CAGR']:.2%}"
         )
 
     # -----------------------
-    # Full Table
+    # Table
     # -----------------------
 
     st.markdown("### 📋 Full Market Scan")
-
     st.dataframe(df, use_container_width=True)
 
     # -----------------------
@@ -193,7 +212,7 @@ if run_button:
         st.success(insight)
 
     # -----------------------
-    # Signal Indicator
+    # Signal
     # -----------------------
 
     latest_signal = best_data['Signal'].iloc[-1]
